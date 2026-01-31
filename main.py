@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 import re
-from typing import List, Dict
+from typing import List
 
 app = FastAPI()
 
@@ -10,32 +10,21 @@ API_KEY = "my_secret_key"
 class Message(BaseModel):
     message: str
 
-
-# ---------- EXTRACTION FUNCTIONS ----------
-
-def extract_phone_numbers(text: str) -> List[str]:
-    return re.findall(r'\b\d{10}\b', text)
-
-
-def extract_urls(text: str) -> List[str]:
-    return re.findall(r'https?://\S+|www\.\S+', text)
-
-
-def extract_upi_ids(text: str) -> List[str]:
-    return re.findall(r'\b[a-zA-Z0-9.\-_]+@[a-zA-Z]+\b', text)
-
-
-# ---------- ROOT ----------
-
 @app.get("/")
 def root():
-    return {
-        "status": "active",
-        "message": "Honeypot API is running successfully"
-    }
+    return {"status": "active", "message": "Honeypot API is running"}
 
+def extract_phones(text: str) -> List[str]:
+    pattern = r'(\+91[\s-]?\d{10}|\b\d{10}\b)'
+    return list(set(re.findall(pattern, text)))
 
-# ---------- MAIN HONEYPOT API ----------
+def extract_urls(text: str) -> List[str]:
+    pattern = r'(https?://[^\s]+)'
+    return list(set(re.findall(pattern, text)))
+
+def extract_upi(text: str) -> List[str]:
+    pattern = r'[\w.\-]{2,}@[a-zA-Z]{2,}'
+    return list(set(re.findall(pattern, text)))
 
 @app.post("/honeypot")
 def honeypot(
@@ -45,23 +34,23 @@ def honeypot(
     if authorization != f"Bearer {API_KEY}":
         raise HTTPException(status_code=401, detail="Unauthorized")
 
+    msg_lower = data.message.lower()
+
     scam_keywords = [
-        "lottery", "prize", "winner", "free money", "urgent",
-        "click", "verify", "account blocked", "bank",
-        "payment", "upi", "offer", "limited time"
+        "lottery", "prize", "winner", "free money",
+        "urgent", "click", "limited time", "offer"
     ]
 
-    message_lower = data.message.lower()
-    is_scam = any(keyword in message_lower for keyword in scam_keywords)
+    is_scam = any(word in msg_lower for word in scam_keywords)
 
-    extracted_data: Dict[str, List[str]] = {
-        "phone_numbers": extract_phone_numbers(data.message),
-        "urls": extract_urls(data.message),
-        "upi_ids": extract_upi_ids(data.message)
-    }
+    phones = extract_phones(data.message)
+    urls = extract_urls(data.message)
+    upi_ids = extract_upi(data.message)
 
     return {
         "is_scam": is_scam,
-        "received_message": data.message,
-        "extracted_data": extracted_data
+        "phones": phones,
+        "urls": urls,
+        "upi_ids": upi_ids,
+        "received_message": data.message
     }
