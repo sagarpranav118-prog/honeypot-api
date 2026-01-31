@@ -5,7 +5,7 @@ app = FastAPI()
 
 API_KEY = "my_secret_key"
 
-class MessageInput(BaseModel):
+class Message(BaseModel):
     message: str
 
 @app.get("/")
@@ -13,21 +13,16 @@ def root():
     return {"status": "active", "message": "Honeypot API is running"}
 
 @app.post("/honeypot")
-def honeypot(data: MessageInput, authorization: str = Header(None)):
+def honeypot(data: Message, authorization: str = Header(None, alias="Authorization")):
     if authorization != f"Bearer {API_KEY}":
         raise HTTPException(status_code=401, detail="Unauthorized")
 
+    scam_keywords = ["lottery", "prize", "winner", "free money", "urgent", "click"]
     msg = data.message.lower()
 
-    if "won" in msg or "lottery" in msg or "prize" in msg:
-        return {
-            "is_scam": True,
-            "scam_type": "Lottery Scam",
-            "reason": "Message promises reward"
-        }
+    is_scam = any(word in msg for word in scam_keywords)
 
     return {
-        "is_scam": False,
-        "scam_type": "None",
-        "reason": "No scam patterns detected"
+        "is_scam": is_scam,
+        "received_message": data.message
     }
