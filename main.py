@@ -1,69 +1,84 @@
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header
 from pydantic import BaseModel
-from typing import List, Dict, Optional
 import re
+from typing import List, Optional
 
-app = FastAPI(title="Honeypot Scam Detection API")
+app = FastAPI()
 
+# ================= CONFIG =================
 API_KEY = "my_secret_key"
 
-# ---------- REQUEST MODELS (MATCH HACKATHON) ----------
-
-class IncomingMessage(BaseModel):
+# ================= MODELS =================
+class MessageContent(BaseModel):
     sender: str
     text: str
     timestamp: int
 
-class IncomingRequest(BaseModel):
+class Payload(BaseModel):
     sessionId: str
-    message: IncomingMessage
-    conversationHistory: List[Dict]
-    metadata: Dict
+    message: MessageContent
+    conversationHistory: List[dict] = []
+    metadata: dict = {}
 
+# ================= HELPERS =================
+def extract_phone_numbers(text: str):
+    return re.findall(r"\b[6-9]\d{9}\b", text)
 
-# ---------- SCAM LOGIC ----------
+def extract_upi_ids(text: str):
+    return re.findall(r"\b[\w.\-]{2,}@[a-zA-Z]{2,}\b", text)
 
-def scam_confidence_score(text: str) -> int:
-    keywords = {
-        "bank": 20,
-        "blocked": 20,
-        "verify": 20,
-        "urgent": 15,
-        "account": 15,
-        "click": 10,
-        "immediately": 15
+def extract_urls(text: str):
+    return re.findall(r"https?://[^\s]+", text)
+
+def detect_scam(text: str):
+    keywords = [
+        "account blocked", "verify immediately", "urgent",
+        "lottery", "prize", "winner", "click", "suspended"
+    ]
+    text_lower = text.lower()
+    return any(k in text_lower for k in keywords)
+
+# ================= ROOT =================
+@app.get("/")
+def root():
+    return {
+        "status": "success",
+        "reply": "Honeypot Scam Detection API is running"
     }
-    score = 0
-    text = text.lower()
-    for k, w in keywords.items():
-        if k in text:
-            score += w
-    return min(score, 100)
 
-
-def agentic_reply(score: int) -> str:
-    if score < 30:
-        return "Thanks for the information. I will check and respond."
-    if score < 60:
-        return "Can you explain why this verification is needed?"
-    return "Why is my account being suspended?"
-
-
-# ---------- MAIN ENDPOINT (WHAT JUDGES HIT) ----------
-
+# ================= MAIN ENDPOINT =================
 @app.post("/")
-def honeypot_root(
-    data: IncomingRequest,
-    authorization: Optional[str] = Header(None, alias="Authorization")
-):
-    if authorization != f"Bearer {API_KEY}":
-        raise HTTPException(status_code=401, detail="Unauthorized")
+def honeypot(payload: Payload, x_api_key: Optional[str] = Header(None)):
+    # ---- Auth Check ----
+    if x_api_key != API_KEY:
+        return {
+            "status": "error",
+            "reply": "Unauthorized"
+        }
 
-    text = data.message.text
-    score = scam_confidence_score(text)
-    reply = agentic_reply(score)
+    text = payload.message.text
+
+    phones = extract_phone_numbers(text)
+    upis = extract_upi_ids(text)
+    urls = extract_urls(text)
+    is_scam = detect_scam(text)
+
+    # ---- Agentic Persona Reply ----
+    if is_scam:
+        reply = (
+            "I’m facing issues accessing my account. "
+            "Can you explain the process clearly?"
+        )
+    else:
+        reply = "Can you please provide more details?"
 
     return {
         "status": "success",
-        "reply": reply
+        "reply": reply,
+        "analysis": {
+            "is_scam": is_scam,
+            "extracted_phone_numbers": phones,
+            "extracted_upi_ids": upis,
+            "extracted_urls": urls
+        }
     }
