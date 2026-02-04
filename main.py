@@ -1,76 +1,45 @@
-from fastapi import FastAPI, Header
+from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
+from typing import Optional
 import re
-from typing import List, Optional
 
 app = FastAPI()
 
-# ================= CONFIG =================
 API_KEY = "my_secret_key"
 
-# ================= MODELS =================
-class MessageContent(BaseModel):
+class IncomingMessage(BaseModel):
     sender: str
     text: str
     timestamp: int
 
-class Payload(BaseModel):
+class RequestBody(BaseModel):
     sessionId: str
-    message: MessageContent
-    conversationHistory: List[dict] = []
-    metadata: dict = {}
+    message: IncomingMessage
+    conversationHistory: list
+    metadata: dict
 
-# ================= HELPERS =================
-def extract_phone_numbers(text: str):
-    return re.findall(r"\b[6-9]\d{9}\b", text)
-
-def extract_upi_ids(text: str):
-    return re.findall(r"\b[\w.\-]{2,}@[a-zA-Z]{2,}\b", text)
-
-def extract_urls(text: str):
-    return re.findall(r"https?://[^\s]+", text)
-
-def detect_scam(text: str):
-    keywords = [
-        "account blocked", "verify immediately", "urgent",
-        "lottery", "prize", "winner", "click", "suspended"
-    ]
-    text_lower = text.lower()
-    return any(k in text_lower for k in keywords)
-
-# ================= ROOT =================
-@app.get("/")
-def root():
-    return {
-        "status": "success",
-        "reply": "Honeypot Scam Detection API is running"
-    }
-
-# ================= MAIN ENDPOINT =================
 @app.post("/")
-def honeypot(payload: Payload, x_api_key: Optional[str] = Header(None)):
-    # ---- Auth Check ----
+def scam_api(
+    payload: RequestBody,
+    x_api_key: Optional[str] = Header(None)
+):
     if x_api_key != API_KEY:
-        return {
-            "status": "error",
-            "reply": "Unauthorized"
-        }
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
-    text = payload.message.text
+    text = payload.message.text.lower()
 
-    phones = extract_phone_numbers(text)
-    upis = extract_upi_ids(text)
-    urls = extract_urls(text)
-    is_scam = detect_scam(text)
+    scam_keywords = ["bank", "blocked", "verify", "urgent", "lottery", "prize"]
+    is_scam = any(k in text for k in scam_keywords)
 
-    # ---- Agentic Persona Reply ----
-    if is_scam:
-        reply = (
-            "I’m facing issues accessing my account. "
-            "Can you explain the process clearly?"
-        )
-    else:
-        reply = "Can you please provide more details?"
+    phones = re.findall(r"\b\d{10}\b", text)
+    upis = re.findall(r"\b[\w.-]+@[\w.-]+\b", text)
+    urls = re.findall(r"https?://\S+", text)
+
+    reply = (
+        "I’m having trouble accessing my account. Can you please explain the issue clearly?"
+        if is_scam
+        else "Thank you for the information."
+    )
 
     return {
         "status": "success",
